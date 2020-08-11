@@ -18,16 +18,21 @@
 #ifndef AGENT_BASED_EPIDEMIC_SIM_CORE_EVENT_H_
 #define AGENT_BASED_EPIDEMIC_SIM_CORE_EVENT_H_
 
+#include <array>
+#include <limits>
+#include <type_traits>
+#include <vector>
+
 #include "absl/meta/type_traits.h"
 #include "absl/time/time.h"
 #include "absl/types/variant.h"
+#include "agent_based_epidemic_sim/core/constants.h"
 #include "agent_based_epidemic_sim/core/integral_types.h"
 #include "agent_based_epidemic_sim/core/visit.h"
+#include "agent_based_epidemic_sim/port/logging.h"
 #include "agent_based_epidemic_sim/util/ostream_overload.h"
 
 namespace abesim {
-
-inline constexpr uint8 kNumberMicroExposureBuckets = 10;
 
 // Convenience method to easily output contents of array to ostream rather than
 // constructing output string manually.
@@ -65,27 +70,57 @@ struct HealthTransition {
 static_assert(absl::is_trivially_copy_constructible<HealthTransition>::value,
               "HealthTransition must be trivially copyable.");
 
+// Represents a collection of distances between hosts at fixed intervals during
+// an Exposure event.
+struct ProximityTrace {
+  ProximityTrace(std::vector<float> start_values) {
+    values.fill(std::numeric_limits<float>::max());
+    if (start_values.size() > kMaxTraceLength) {
+      LOG(WARNING) << "Resizing start_values (" << start_values.size()
+                   << ") to " << kMaxTraceLength << ".";
+      start_values.resize(kMaxTraceLength);
+    }
+
+    for (int i = 0; i < start_values.size(); ++i) {
+      values[i] = start_values[i];
+    }
+  }
+  ProximityTrace() { values.fill(std::numeric_limits<float>::max()); }
+
+  std::array<float, kMaxTraceLength> values;
+
+  friend bool operator==(const ProximityTrace& a, const ProximityTrace& b) {
+    return a.values == b.values;
+  }
+};
+
 // Represents a single exposure event between a SUSCEPTIBLE and an INFECTIOUS
-// entity made up of multiple "micro exposure" events.
-// Each exposure has real values that are used when computing the probability of
-// transmission from the INFECTIOUS entity to the SUSCEPTIBLE entity:
+// entity. Each exposure contains real values that are used when computing the
+// probability of transmission from the INFECTIOUS entity to the SUSCEPTIBLE
+// entity:
 //   infectivity: A function of the duration since the INFECTIOUS entity first
 //   became infected.
 //   symptom_factor: A function of the current HealthState of the INFECTIOUS
 //   entity.
-// Each count in micro_exposure_counts represents a duration in minutes that the
-// two entities spent at a particular distance (as represented by the index).
+// proximity_trace represents the distance in meters between the two entities at
+// each time kProximityTraceInterval during the exposure.
 struct Exposure {
   absl::Time start_time;
+  // TODO: Assume every Exposure duration is fixed at
+  // (kMaxTraceLength * kProximityTraceInterval = 100min) to simplify things.
+  // This being possible because the proximity_trace is
+  // std::numeric_limits<float>::max() after the contact. At this distance there
+  // is 0% chance of infection. May make transmission_model much less efficient.
   absl::Duration duration;
-  std::array<uint8, kNumberMicroExposureBuckets> micro_exposure_counts = {};
+  ProximityTrace proximity_trace;
   float infectivity;
   float symptom_factor;
 
   friend bool operator==(const Exposure& a, const Exposure& b) {
     return (a.start_time == b.start_time && a.duration == b.duration &&
+            a.proximity_trace == b.proximity_trace &&
             a.infectivity == b.infectivity &&
-            a.micro_exposure_counts == b.micro_exposure_counts);
+            a.symptom_factor == b.symptom_factor);
   }
 
   friend bool operator!=(const Exposure& a, const Exposure& b) {
@@ -95,8 +130,9 @@ struct Exposure {
   friend std::ostream& operator<<(std::ostream& strm,
                                   const Exposure& exposure) {
     return strm << "{" << exposure.start_time << ", " << exposure.duration
-                << ", " << exposure.infectivity << ", "
-                << exposure.micro_exposure_counts << "}";
+                << ", " << exposure.proximity_trace.values << ", "
+                << exposure.infectivity << ", " << exposure.symptom_factor
+                << "}";
   }
 };
 
