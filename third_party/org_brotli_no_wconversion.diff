@@ -1,0 +1,12 @@
+diff --git a/BUILD b/BUILD
+index 4c9b57a..10288b1 100644
+--- a/BUILD
++++ b/BUILD
+@@ -48,7 +48,6 @@ STRICT_C_OPTIONS = select({
+     "//conditions:default": [
+         "--pedantic-errors",
+         "-Wall",
+-        "-Wconversion",
+         "-Werror",
+         "-Wextra",
+         "-Wlong-long",
